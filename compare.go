@@ -1,19 +1,20 @@
 package test
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
 
-var evalTypeFn map[reflect.Kind]func(a, b reflect.Value) error
+var evalTypeFn map[reflect.Kind]func(a, b reflect.Value) Result
 
 func init() {
-	evalTypeFn = map[reflect.Kind]func(a, b reflect.Value) error{
-		reflect.String: isStringEqual,
-		reflect.Bool: isBoolEqual,
-		reflect.Struct: isStructEqual,
-		reflect.Map: isMapEqual,
-		reflect.Ptr: isPointerDeepEqual,
+	evalTypeFn = map[reflect.Kind]func(a, b reflect.Value) Result{
+		reflect.String:    isStringEqual,
+		reflect.Bool:      isBoolEqual,
+		reflect.Struct:    isStructEqual,
+		reflect.Map:       isMapEqual,
+		reflect.Ptr:       isPointerDeepEqual,
 		reflect.Interface: isInterfaceEqual,
 
 		// Integer
@@ -38,12 +39,12 @@ func init() {
 
 		// Slice & Array
 		reflect.Slice: isSliceEqual,
-		reflect.Array:         isSliceEqual,
+		reflect.Array: isSliceEqual,
 
 		// Pointers
-		reflect.Func:   isPointerEqual,
+		reflect.Func:          isPointerEqual,
 		reflect.UnsafePointer: isPointerEqual,
-		reflect.Chan:    isPointerEqual,
+		reflect.Chan:          isPointerEqual,
 		reflect.Uintptr:       isPointerEqual,
 
 		// Unsupported
@@ -51,38 +52,43 @@ func init() {
 	}
 }
 
-func isInterfaceEqual(a, b reflect.Value) error {
-	return equal(a.Elem(), b.Elem())
+type Result struct {
+	Error    error
+	a        reflect.Value
+	b        reflect.Value
+	Children []Result
+	Field    string
 }
 
-func isPointerDeepEqual(a, b reflect.Value) error {
-	return equal(refToVal(a), refToVal(b))
+func (r Result) Cmp() string {
+	if r.Error != nil {
+		return "!="
+	}
+	return "=="
 }
 
-func isMapEqual(a, b reflect.Value) error {
-	for _, key := range a.MapKeys() {
-		if err := equal(a.MapIndex(key), b.MapIndex(key)); err != nil {
+func (r Result) String() string {
+	return fmt.Sprintf("%s: (%v) %v %v %v", r.Field, r.a.Kind(), r.a, r.Cmp(), r.b)
+}
+
+func (r Result) Print(tabs string) error {
+	if r.Error != nil {
+		return r.Error
+	}
+	if len(r.Children) > 0 {
+		fmt.Printf("(%v::%v)\n", r.a.Type().PkgPath(), r.a.Type().Name())
+	}
+	for _, child := range r.Children {
+		if len(child.Children) == 0 {
+			fmt.Println(tabs + child.String())
+		} else {
+			fmt.Printf("%s: ", child.Field)
+		}
+		if err := child.Print(tabs + "\t"); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func isStructEqual(a, b reflect.Value) error {
-	for i := 0; i < a.NumField(); i++ {
-		if err := equal(a.Field(i), b.Field(i)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func isBoolEqual(a, b reflect.Value) error {
-	return isEqual(a.Bool() == b.Bool(), a, b)
-}
-
-func isStringEqual(a ,b reflect.Value) error {
-	return isEqual(a.String() == b.String(), a, b)
 }
 
 type Comparison struct {
@@ -94,52 +100,100 @@ func NewComparison() Comparison {
 }
 
 func (c Comparison) Equal(a, b interface{}) error {
-	return equal(reflect.ValueOf(a), reflect.ValueOf(b))
+	result := equal(reflect.ValueOf(a), reflect.ValueOf(b))
+	return result.Print("")
 }
 
-func equal(a, b reflect.Value) error {
+func equal(a, b reflect.Value) Result {
 	if a.Kind() != b.Kind() {
-		return NewError(ErrDifferingTypes, DifferentTypesFmt, a.Kind(), a, b.Kind(), b)
+		return Result{
+			Error: NewError(ErrDifferingTypes, DifferentTypesFmt, a.Kind(), a, b.Kind(), b),
+		}
 	}
 	fn, ok := evalTypeFn[a.Kind()]
 	if !ok {
-		return NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a)
+		return Result{
+			Error: NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a),
+		}
 	}
 	return fn(a, b)
 }
 
-func isEqual(statement bool, a, b reflect.Value) error {
+func isEqual(statement bool, a, b reflect.Value) Result {
 	if !statement {
-		return NewError(ErrNotEqual, "%v != %v", a, b)
+		return Result{
+			Error: NewError(ErrNotEqual, "%v != %v", a, b),
+			a:     a,
+			b:     b,
+		}
 	}
-	return nil
+	return Result{a: a, b: b}
 }
 
-func isIntEqual(a, b reflect.Value) error {
+func isIntEqual(a, b reflect.Value) Result {
 	return isEqual(a.Int() == b.Int(), a, b)
 }
 
-func isFloatEqual(a, b reflect.Value) error {
+func isFloatEqual(a, b reflect.Value) Result {
 	return isEqual(a.Float() == b.Float(), a, b)
 }
 
-func isComplexEqual(a, b reflect.Value) error {
+func isComplexEqual(a, b reflect.Value) Result {
 	return isEqual(a.Complex() == b.Complex(), a, b)
 }
 
-func isSliceEqual(a, b reflect.Value) error {
+func isSliceEqual(a, b reflect.Value) Result {
 	for i := 0; i < a.Len(); i++ {
-		if err := equal(a.Index(i), b.Index(i)); err != nil {
-			return err
+		result := equal(a.Index(i), b.Index(i))
+		if result.Error != nil {
+			return result
 		}
 	}
-	return nil
+	return Result{}
 }
 
-func isPointerEqual(a, b reflect.Value) error {
+func isPointerEqual(a, b reflect.Value) Result {
 	return isEqual(a.Pointer() == b.Pointer(), a, b)
 }
 
+func isInterfaceEqual(a, b reflect.Value) Result {
+	return equal(a.Elem(), b.Elem())
+}
+
+func isPointerDeepEqual(a, b reflect.Value) Result {
+	return equal(refToVal(a), refToVal(b))
+}
+
+func isMapEqual(a, b reflect.Value) Result {
+	for _, key := range a.MapKeys() {
+		result := equal(a.MapIndex(key), b.MapIndex(key))
+		if result.Error != nil {
+			return result
+		}
+	}
+	return Result{}
+}
+
+func isStructEqual(a, b reflect.Value) Result {
+	result := Result{a: a, b: b}
+	for i := 0; i < a.NumField(); i++ {
+		r := equal(a.Field(i), b.Field(i))
+		r.Field = a.Type().Field(i).Name
+		result.Children = append(result.Children, r)
+		if r.Error != nil {
+			return result
+		}
+	}
+	return result
+}
+
+func isBoolEqual(a, b reflect.Value) Result {
+	return isEqual(a.Bool() == b.Bool(), a, b)
+}
+
+func isStringEqual(a, b reflect.Value) Result {
+	return isEqual(a.String() == b.String(), a, b)
+}
 func refToVal(a reflect.Value) reflect.Value {
 	for a.Kind() == reflect.Ptr {
 		a = a.Elem()
@@ -147,7 +201,8 @@ func refToVal(a reflect.Value) reflect.Value {
 	return a
 }
 
-func unsupported(a, b reflect.Value) error {
-	return NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a)
+func unsupported(a, b reflect.Value) Result {
+	return Result{
+		Error: NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a),
+	}
 }
-

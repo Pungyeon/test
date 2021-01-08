@@ -19,22 +19,29 @@ type TestInterfaceProp struct {
 	v interface{}
 }
 
+func TestStructCompare(t *testing.T) {
+	a := TestStruct{"Lasse", TestNest{23}}
+	b := TestStruct{"Lasse", TestNest{24}}
+
+	if err := NewComparison().Equal(a, b); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompare(t *testing.T) {
 	var (
 		cmp        Comparison  = NewComparison()
-		aInterface interface{} = TestStruct{ "Lasse", TestNest{ 23 }}
-		bInterface interface{} = TestStruct{ "Lasse", TestNest{ 23 }}
-		cInterface interface{} = TestStruct{ "Basse", TestNest{ 24 }}
+		aInterface interface{} = TestStruct{"Lasse", TestNest{23}}
+		bInterface interface{} = TestStruct{"Lasse", TestNest{23}}
+		cInterface interface{} = TestStruct{"Basse", TestNest{24}}
 		aChannel   chan int    = make(chan int)
 		bChannel   chan int    = make(chan int)
 	)
 
-
-
-	tt := []struct{
-		name string
-		a interface{}
-		b interface{}
+	tt := []struct {
+		name     string
+		a        interface{}
+		b        interface{}
 		expected error
 	}{
 		{"integer equal", 1, 1, nil},
@@ -90,20 +97,20 @@ func TestCompare(t *testing.T) {
 			},
 			ErrNotEqual},
 		{"struct equal",
-			TestStruct{"Lasse", TestNest{ 23 }},
-			TestStruct{"Lasse", TestNest{ 23 }},
+			TestStruct{"Lasse", TestNest{23}},
+			TestStruct{"Lasse", TestNest{23}},
 			nil},
 		{"struct !equal",
-			TestStruct{"Lasse", TestNest{ 23 }},
-			TestStruct{"Lasse", TestNest{ 24 }},
+			TestStruct{"Lasse", TestNest{23}},
+			TestStruct{"Lasse", TestNest{24}},
 			ErrNotEqual},
 		{"ptr equal",
-			&TestStruct{"Lasse", TestNest{ 23 }},
-			&TestStruct{"Lasse", TestNest{ 23 }},
+			&TestStruct{"Lasse", TestNest{23}},
+			&TestStruct{"Lasse", TestNest{23}},
 			nil},
 		{"ptr !equal",
-			&TestStruct{"Lasse", TestNest{ 23 }},
-			&TestStruct{"Basse", TestNest{ 23 }},
+			&TestStruct{"Lasse", TestNest{23}},
+			&TestStruct{"Basse", TestNest{23}},
 			ErrNotEqual},
 		{"interface equal", aInterface, bInterface, nil},
 		{"interface !equal", aInterface, cInterface, ErrNotEqual},
