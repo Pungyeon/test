@@ -8,6 +8,12 @@ import (
 var (
 	ErrNotEqual        = errors.New("not equal")
 	ErrUnsupportedType = errors.New("type not supported for evaluation")
+	ErrDifferingTypes = errors.New("given values were not of same type")
+
+	DifferentTypesFmt = `
+a: (%v) %v
+b: (%v) %v
+`
 )
 
 type Error struct {
