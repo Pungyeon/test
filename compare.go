@@ -8,16 +8,11 @@ import (
 )
 
 var (
-	colorReset = "\033[0m"
-
+	colorReset  = "\033[0m"
 	colorGrey   = "\033[90m"
 	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorPurple = "\033[35m"
 	colorCyan   = "\033[36m"
-	colorWhite  = "\033[37m"
 )
 
 var evalTypeFn map[reflect.Kind]func(a, b reflect.Value) Result
@@ -75,16 +70,17 @@ type Result struct {
 	Type     string
 }
 
-func (r Result) Cmp() string {
+func (r Result) Cmp() (string, string) {
 	if r.Error != nil {
-		return "!="
+		return colorRed, "!="
 	}
-	return "=="
+	return colorReset, "=="
 }
 
 func (r Result) ComparisonString() string {
+	color, comparator := r.Cmp()
 	return fmt.Sprintf("%s(%v)%s %v %v %v",
-		colorGrey, r.a.Kind(), colorReset, r.a, r.Cmp(), r.b)
+		colorGrey, r.a.Kind(), color, r.a, comparator, r.b)
 }
 
 func (r Result) Print(tabs string) error {
