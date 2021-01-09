@@ -3,7 +3,21 @@ package test
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
+)
+
+var (
+	colorReset = "\033[0m"
+
+	colorGrey   = "\033[90m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorBlue   = "\033[34m"
+	colorPurple = "\033[35m"
+	colorCyan   = "\033[36m"
+	colorWhite  = "\033[37m"
 )
 
 var evalTypeFn map[reflect.Kind]func(a, b reflect.Value) Result
@@ -58,6 +72,7 @@ type Result struct {
 	b        reflect.Value
 	Children []Result
 	Field    string
+	Type     string
 }
 
 func (r Result) Cmp() string {
@@ -67,18 +82,19 @@ func (r Result) Cmp() string {
 	return "=="
 }
 
-func (r Result) String() string {
-	return fmt.Sprintf("(%v) %v %v %v", r.a.Kind(), r.a, r.Cmp(), r.b)
+func (r Result) ComparisonString() string {
+	return fmt.Sprintf("%s(%v)%s %v %v %v",
+		colorGrey, r.a.Kind(), colorReset, r.a, r.Cmp(), r.b)
 }
 
 func (r Result) Print(tabs string) error {
 	if len(r.Children) == 0 {
-		fmt.Println(r.String())
+		fmt.Println(r.ComparisonString())
 		return r.Error
 	} else {
-		fmt.Printf("(%v::%v)\n", r.a.Type().PkgPath(), r.a.Type().Name())
+		fmt.Printf("%s%s\n", colorYellow, r.Type)
 		for _, child := range r.Children {
-			fmt.Printf("%s%s: ", tabs, child.Field)
+			fmt.Printf("%s%s%s: ", tabs, colorCyan, child.Field)
 			if err := child.Print(tabs + "\t"); err != nil {
 				return err
 			}
@@ -86,8 +102,6 @@ func (r Result) Print(tabs string) error {
 	}
 
 	return nil
-
-	//return nil
 }
 
 type Comparison struct {
@@ -106,12 +120,14 @@ func (c Comparison) Equal(a, b interface{}) error {
 func equal(a, b reflect.Value) Result {
 	if a.Kind() != b.Kind() {
 		return Result{
+			a: a, b: b,
 			Error: NewError(ErrDifferingTypes, DifferentTypesFmt, a.Kind(), a, b.Kind(), b),
 		}
 	}
 	fn, ok := evalTypeFn[a.Kind()]
 	if !ok {
 		return Result{
+			a: a, b: b,
 			Error: NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a),
 		}
 	}
@@ -121,9 +137,8 @@ func equal(a, b reflect.Value) Result {
 func isEqual(statement bool, a, b reflect.Value) Result {
 	if !statement {
 		return Result{
+			a: a, b: b,
 			Error: NewError(ErrNotEqual, "%v != %v", a, b),
-			a:     a,
-			b:     b,
 		}
 	}
 	return Result{a: a, b: b}
@@ -142,13 +157,19 @@ func isComplexEqual(a, b reflect.Value) Result {
 }
 
 func isSliceEqual(a, b reflect.Value) Result {
+	result := Result{
+		a: a, b: b,
+		Type: fmt.Sprintf("(%v)", a.Type().String()),
+	}
 	for i := 0; i < a.Len(); i++ {
-		result := equal(a.Index(i), b.Index(i))
-		if result.Error != nil {
+		r := equal(a.Index(i), b.Index(i))
+		r.Field = strconv.FormatInt(int64(i), 10)
+		result.Children = append(result.Children, r)
+		if r.Error != nil {
 			return result
 		}
 	}
-	return Result{}
+	return result
 }
 
 func isPointerEqual(a, b reflect.Value) Result {
@@ -164,7 +185,9 @@ func isPointerDeepEqual(a, b reflect.Value) Result {
 }
 
 func isMapEqual(a, b reflect.Value) Result {
-	result := Result{a: a, b: b}
+	result := Result{a: a, b: b,
+		Type: fmt.Sprintf("(%v)", a.Type().String()),
+	}
 	for _, key := range a.MapKeys() {
 		r := equal(a.MapIndex(key), b.MapIndex(key))
 		r.Field = key.String()
@@ -177,7 +200,11 @@ func isMapEqual(a, b reflect.Value) Result {
 }
 
 func isStructEqual(a, b reflect.Value) Result {
-	result := Result{a: a, b: b}
+	result := Result{
+		a: a, b: b,
+		Type: fmt.Sprintf("(%v::%v)", a.Type().PkgPath(), a.Type().Name()),
+	}
+
 	for i := 0; i < a.NumField(); i++ {
 		r := equal(a.Field(i), b.Field(i))
 		r.Field = a.Type().Field(i).Name

@@ -20,11 +20,55 @@ type TestInterfaceProp struct {
 	v interface{}
 }
 
-func TestStructCompare(t *testing.T) {
-	a := TestStruct{"Lasse", TestNest{23}}
-	b := TestStruct{"Lasse", TestNest{24}}
+type BigStruct struct {
+	Name  string
+	Value TestInterfaceProp
+	Inner InnerStruct
+	Test  TestStruct
+}
 
-	if err := NewComparison().Equal(a, b); err != nil {
+type InnerStruct struct {
+	Name   string
+	Values []int
+}
+
+func TestStructCompare(t *testing.T) {
+	a := BigStruct{
+		Name: "Big Struct",
+		Value: TestInterfaceProp{
+			v: &TestNest{
+				age: 23,
+			},
+		},
+		Inner: InnerStruct{
+			Name:   "Inner Struct",
+			Values: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		},
+		Test: TestStruct{
+			name: "Test Struct",
+			nest: TestNest{
+				age: 39,
+			},
+		},
+	}
+	if err := NewComparison().Equal(a, BigStruct{
+		Name: "Big Struct",
+		Value: TestInterfaceProp{
+			v: &TestNest{
+				age: 23,
+			},
+		},
+		Inner: InnerStruct{
+			Name:   "Inner Struct",
+			Values: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		},
+		Test: TestStruct{
+			name: "Test Struct",
+			nest: TestNest{
+				age: 39,
+			},
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
