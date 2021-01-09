@@ -2,6 +2,7 @@ package test
 
 import (
 	"errors"
+	"fmt"
 	"math/cmplx"
 	"testing"
 )
@@ -124,6 +125,7 @@ func TestCompare(t *testing.T) {
 	}
 
 	for _, tf := range tt {
+		fmt.Println()
 		if err := cmp.Equal(tf.a, tf.b); !errors.Is(err, tf.expected) {
 			t.Fatalf("test (%s) failed: %v", tf.name, err)
 		}

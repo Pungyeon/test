@@ -68,27 +68,26 @@ func (r Result) Cmp() string {
 }
 
 func (r Result) String() string {
-	return fmt.Sprintf("%s: (%v) %v %v %v", r.Field, r.a.Kind(), r.a, r.Cmp(), r.b)
+	return fmt.Sprintf("(%v) %v %v %v", r.a.Kind(), r.a, r.Cmp(), r.b)
 }
 
 func (r Result) Print(tabs string) error {
-	if r.Error != nil {
+	if len(r.Children) == 0 {
+		fmt.Println(r.String())
 		return r.Error
-	}
-	if len(r.Children) > 0 {
+	} else {
 		fmt.Printf("(%v::%v)\n", r.a.Type().PkgPath(), r.a.Type().Name())
-	}
-	for _, child := range r.Children {
-		if len(child.Children) == 0 {
-			fmt.Println(tabs + child.String())
-		} else {
-			fmt.Printf("%s: ", child.Field)
-		}
-		if err := child.Print(tabs + "\t"); err != nil {
-			return err
+		for _, child := range r.Children {
+			fmt.Printf("%s%s: ", tabs, child.Field)
+			if err := child.Print(tabs + "\t"); err != nil {
+				return err
+			}
 		}
 	}
+
 	return nil
+
+	//return nil
 }
 
 type Comparison struct {
@@ -165,13 +164,16 @@ func isPointerDeepEqual(a, b reflect.Value) Result {
 }
 
 func isMapEqual(a, b reflect.Value) Result {
+	result := Result{a: a, b: b}
 	for _, key := range a.MapKeys() {
-		result := equal(a.MapIndex(key), b.MapIndex(key))
-		if result.Error != nil {
+		r := equal(a.MapIndex(key), b.MapIndex(key))
+		r.Field = key.String()
+		result.Children = append(result.Children, r)
+		if r.Error != nil {
 			return result
 		}
 	}
-	return Result{}
+	return result
 }
 
 func isStructEqual(a, b reflect.Value) Result {
