@@ -2,9 +2,10 @@ package test
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"reflect"
 	"strconv"
-	"testing"
 )
 
 var (
@@ -70,6 +71,13 @@ type Result struct {
 	Type     string
 }
 
+func (r Result) AssertString() string {
+	if r.Error == nil {
+		return "OK"
+	}
+	return "FAIL"
+}
+
 func (r Result) Cmp() (string, string) {
 	if r.Error != nil {
 		return colorRed, "!="
@@ -83,34 +91,67 @@ func (r Result) ComparisonString() string {
 		colorGrey, r.a.Kind(), color, r.a, comparator, r.b)
 }
 
-func (r Result) Print(tabs string) error {
+// This should take a writer, instead of just writing to stdout
+func (r Result) Print(w io.Writer, debug bool, tabs string) error {
+	if debug == false && r.Error == nil {
+		return nil
+	}
 	if len(r.Children) == 0 {
-		fmt.Println(r.ComparisonString())
+		_, _ = w.Write([]byte(r.ComparisonString() + "\n"))
 		return r.Error
-	} else {
-		fmt.Printf("%s%s\n", colorYellow, r.Type)
-		for _, child := range r.Children {
-			fmt.Printf("%s%s%s: ", tabs, colorCyan, child.Field)
-			if err := child.Print(tabs + "\t"); err != nil {
-				return err
-			}
+	}
+	_, _ = w.Write([]byte(fmt.Sprintf("%s%s%s[%v]\n", colorYellow, r.Type, colorGrey, r.AssertString())))
+	for _, child := range r.Children {
+		if debug == false && child.Error == nil {
+			continue
+		}
+		_, _ = w.Write([]byte(fmt.Sprintf("%s%s%s: ", tabs, colorCyan, child.Field)))
+		if err := child.Print(w, debug, tabs+"\t"); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
-type Comparison struct {
-	t *testing.T
+type Option func(*Comparison)
+
+func WithDebug() Option {
+	return func(c *Comparison) {
+		c.debug = true
+	}
 }
 
-func NewComparison() Comparison {
-	return Comparison{}
+func WithWriter(w io.Writer) Option {
+	return func(c *Comparison) {
+		c.writer = w
+	}
+}
+
+type Comparison struct {
+	debug  bool
+	writer io.Writer
+}
+
+func DefaultComparison() Comparison {
+	return Comparison{
+		debug:  false,
+		writer: os.Stdout,
+	}
+}
+
+func NewComparison(opts ...Option) Comparison {
+	c := DefaultComparison()
+
+	for _, opt := range opts {
+		opt(&c)
+	}
+
+	return c
 }
 
 func (c Comparison) Equal(a, b interface{}) error {
 	result := equal(reflect.ValueOf(a), reflect.ValueOf(b))
-	return result.Print("")
+	return result.Print(c.writer, c.debug, "")
 }
 
 func equal(a, b reflect.Value) Result {
@@ -162,6 +203,7 @@ func isSliceEqual(a, b reflect.Value) Result {
 		r.Field = strconv.FormatInt(int64(i), 10)
 		result.Children = append(result.Children, r)
 		if r.Error != nil {
+			result.Error = r.Error
 			return result
 		}
 	}
@@ -189,6 +231,7 @@ func isMapEqual(a, b reflect.Value) Result {
 		r.Field = key.String()
 		result.Children = append(result.Children, r)
 		if r.Error != nil {
+			result.Error = r.Error
 			return result
 		}
 	}
@@ -206,6 +249,7 @@ func isStructEqual(a, b reflect.Value) Result {
 		r.Field = a.Type().Field(i).Name
 		result.Children = append(result.Children, r)
 		if r.Error != nil {
+			result.Error = r.Error
 			return result
 		}
 	}

@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/cmplx"
@@ -33,7 +34,30 @@ type InnerStruct struct {
 }
 
 func TestStructCompare(t *testing.T) {
-	a := BigStruct{
+	var (
+		expectedOut = "\x1b[33m(github.com/pungyeon/test::BigStruct)\x1b[90m[FAIL]\n\x1b[36mInner: \x1b[33m(github.com/pungyeon/test::InnerStruct)\x1b[90m[FAIL]\n\t\x1b[36mValues: \x1b[33m([]int)\x1b[90m[FAIL]\n\t\t\x1b[36m7: \x1b[90m(int)\x1b[31m 7 != 8\n"
+		a           = BigStruct{
+			Name: "Big Struct",
+			Value: TestInterfaceProp{
+				v: &TestNest{
+					age: 23,
+				},
+			},
+			Inner: InnerStruct{
+				Name:   "Inner Struct",
+				Values: []int{1, 2, 3, 4, 5, 6, 7, 7, 9, 10},
+			},
+			Test: TestStruct{
+				name: "Test Struct",
+				nest: TestNest{
+					age: 39,
+				},
+			},
+		}
+	)
+
+	out := bytes.Buffer{}
+	if err := NewComparison(WithWriter(&out)).Equal(a, BigStruct{
 		Name: "Big Struct",
 		Value: TestInterfaceProp{
 			v: &TestNest{
@@ -50,8 +74,42 @@ func TestStructCompare(t *testing.T) {
 				age: 39,
 			},
 		},
+	}); !errors.Is(err, ErrNotEqual) {
+		t.Fatal(err)
 	}
-	if err := NewComparison().Equal(a, BigStruct{
+
+	if out.String() != expectedOut {
+		t.Fatalf("got: %#v\nexpected: %#v", out.String(), expectedOut)
+	}
+}
+
+func TestStructCompareDebug(t *testing.T) {
+	var (
+		expectedOut = "\x1b[33m(github.com/pungyeon/test::BigStruct)\x1b[90m[OK]\n\x1b[36mName: \x1b[90m(string)\x1b[0m Big Struct == Big Struct\n\x1b[36mValue: \x1b[33m(github.com/pungyeon/test::TestInterfaceProp)\x1b[90m[OK]\n\t\x1b[36mv: \x1b[33m(github.com/pungyeon/test::TestNest)\x1b[90m[OK]\n\t\t\x1b[36mage: \x1b[90m(int)\x1b[0m 23 == 23\n\x1b[36mInner: \x1b[33m(github.com/pungyeon/test::InnerStruct)\x1b[90m[OK]\n\t\x1b[36mName: \x1b[90m(string)\x1b[0m Inner Struct == Inner Struct\n\t\x1b[36mValues: \x1b[33m([]int)\x1b[90m[OK]\n\t\t\x1b[36m0: \x1b[90m(int)\x1b[0m 1 == 1\n\t\t\x1b[36m1: \x1b[90m(int)\x1b[0m 2 == 2\n\t\t\x1b[36m2: \x1b[90m(int)\x1b[0m 3 == 3\n\t\t\x1b[36m3: \x1b[90m(int)\x1b[0m 4 == 4\n\t\t\x1b[36m4: \x1b[90m(int)\x1b[0m 5 == 5\n\t\t\x1b[36m5: \x1b[90m(int)\x1b[0m 6 == 6\n\t\t\x1b[36m6: \x1b[90m(int)\x1b[0m 7 == 7\n\t\t\x1b[36m7: \x1b[90m(int)\x1b[0m 8 == 8\n\t\t\x1b[36m8: \x1b[90m(int)\x1b[0m 9 == 9\n\t\t\x1b[36m9: \x1b[90m(int)\x1b[0m 10 == 10\n\x1b[36mTest: \x1b[33m(github.com/pungyeon/test::TestStruct)\x1b[90m[OK]\n\t\x1b[36mname: \x1b[90m(string)\x1b[0m Test Struct == Test Struct\n\t\x1b[36mnest: \x1b[33m(github.com/pungyeon/test::TestNest)\x1b[90m[OK]\n\t\t\x1b[36mage: \x1b[90m(int)\x1b[0m 39 == 39\n"
+		a           = BigStruct{
+			Name: "Big Struct",
+			Value: TestInterfaceProp{
+				v: &TestNest{
+					age: 23,
+				},
+			},
+			Inner: InnerStruct{
+				Name:   "Inner Struct",
+				Values: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+			},
+			Test: TestStruct{
+				name: "Test Struct",
+				nest: TestNest{
+					age: 39,
+				},
+			},
+		}
+	)
+	var out bytes.Buffer
+	if err := NewComparison(
+		WithDebug(),
+		WithWriter(&out),
+	).Equal(a, BigStruct{
 		Name: "Big Struct",
 		Value: TestInterfaceProp{
 			v: &TestNest{
@@ -70,6 +128,9 @@ func TestStructCompare(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if out.String() != expectedOut {
+		t.Fatalf("got: %#v\nexpected: %#v", out.String(), expectedOut)
 	}
 }
 
