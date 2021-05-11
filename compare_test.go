@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math/cmplx"
+	"sync"
 	"testing"
+	"time"
 )
 
 type TestStruct struct {
@@ -57,7 +59,7 @@ func TestStructCompare(t *testing.T) {
 	)
 
 	out := bytes.Buffer{}
-	if err := NewComparison(WithWriter(&out)).Equal(a, BigStruct{
+	if err := NewAssertion(t, WithWriter(&out)).Equal(a, BigStruct{
 		Name: "Big Struct",
 		Value: TestInterfaceProp{
 			v: &TestNest{
@@ -106,7 +108,7 @@ func TestStructCompareDebug(t *testing.T) {
 		}
 	)
 	var out bytes.Buffer
-	if err := NewComparison(
+	if err := NewAssertion(t,
 		WithDebug(),
 		WithWriter(&out),
 	).Equal(a, BigStruct{
@@ -136,7 +138,7 @@ func TestStructCompareDebug(t *testing.T) {
 
 func TestCompare(t *testing.T) {
 	var (
-		cmp        Comparison  = NewComparison()
+		cmp        Assertion   = NewAssertion(t)
 		aInterface interface{} = TestStruct{"Lasse", TestNest{23}}
 		bInterface interface{} = TestStruct{"Lasse", TestNest{23}}
 		cInterface interface{} = TestStruct{"Basse", TestNest{24}}
@@ -222,17 +224,78 @@ func TestCompare(t *testing.T) {
 		{"interface !equal", aInterface, cInterface, ErrNotEqual},
 		{"struct w. interface equal", TestInterfaceProp{1}, TestInterfaceProp{1}, nil},
 		{"struct w. interface !equal", TestInterfaceProp{1}, TestInterfaceProp{2}, ErrNotEqual},
-		{"func equal", equal, equal, nil},
-		{"func !equal", equal, unsupported, ErrNotEqual},
+		{"func equal", cmp.equal, cmp.equal, nil},
+		{"func !equal", cmp.equal, unsupported, ErrNotEqual},
 		{"chan equal", aChannel, aChannel, nil},
 		{"chan !equal", aChannel, bChannel, ErrNotEqual},
 		{"differing types", 1, "ding", ErrDifferingTypes},
 	}
 
 	for _, tf := range tt {
-		fmt.Println()
 		if err := cmp.Equal(tf.a, tf.b); !errors.Is(err, tf.expected) {
 			t.Fatalf("test (%s) failed: %v", tf.name, err)
 		}
+	}
+}
+
+func TestIgnoreField(t *testing.T) {
+	var (
+		a = BigStruct{
+			Name: "Big Struct",
+			Value: TestInterfaceProp{
+				v: &TestNest{
+					age: 23,
+				},
+			},
+			Inner: InnerStruct{
+				Name:   "Inner Struct",
+				Values: []int{1, 2, 3, 4, 5, 6, 7, 7, 9, 10},
+			},
+		}
+
+		expected = BigStruct{
+			Name: "Big Struct",
+			Value: TestInterfaceProp{
+				v: &TestNest{
+					age: 23,
+				},
+			},
+			Inner: InnerStruct{
+				Name:   "Different",
+				Values: []int{1, 2, 3, 4, 5, 6, 7, 7, 9, 10},
+			},
+		}
+	)
+
+	if err := NewAssertion(t, WithIgnoredFields("InnerStruct::Name")).
+		Equal(a, expected); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type Credentials struct {
+	key string
+}
+
+var creds *Credentials
+
+var initialiser sync.Once
+
+func Initialise() {
+	initialiser.Do(func() {
+		creds = &Credentials{
+			key: time.Now().String(),
+		}
+	})
+}
+
+func TestContextStuff(t *testing.T) {
+	Initialise()
+	tmp := creds.key
+
+	Initialise()
+
+	if tmp != creds.key {
+		fmt.Println("sync once does not work")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"testing"
 )
 
 var (
@@ -16,16 +17,16 @@ var (
 	colorCyan   = "\033[36m"
 )
 
-var evalTypeFn map[reflect.Kind]func(a, b reflect.Value) Result
+type equalityEvalMap map[reflect.Kind]func(a, b reflect.Value) CmpResult
 
-func init() {
-	evalTypeFn = map[reflect.Kind]func(a, b reflect.Value) Result{
+func newEqualityEvalMap(assertion *Assertion) equalityEvalMap {
+	return map[reflect.Kind]func(a, b reflect.Value) CmpResult{
 		reflect.String:    isStringEqual,
 		reflect.Bool:      isBoolEqual,
-		reflect.Struct:    isStructEqual,
-		reflect.Map:       isMapEqual,
-		reflect.Ptr:       isPointerDeepEqual,
-		reflect.Interface: isInterfaceEqual,
+		reflect.Struct:    assertion.isStructEqual,
+		reflect.Map:       assertion.isMapEqual,
+		reflect.Ptr:       assertion.isPointerDeepEqual,
+		reflect.Interface: assertion.isInterfaceEqual,
 
 		// Integer
 		reflect.Int:    isIntEqual,
@@ -48,8 +49,8 @@ func init() {
 		reflect.Complex128: isComplexEqual,
 
 		// Slice & Array
-		reflect.Slice: isSliceEqual,
-		reflect.Array: isSliceEqual,
+		reflect.Slice: assertion.isSliceEqual,
+		reflect.Array: assertion.isSliceEqual,
 
 		// Pointers
 		reflect.Func:          isPointerEqual,
@@ -62,37 +63,38 @@ func init() {
 	}
 }
 
-type Result struct {
+type CmpResult struct {
 	Error    error
 	a        reflect.Value
 	b        reflect.Value
-	Children []Result
+	Children []CmpResult
 	Field    string
 	Type     string
 }
 
-func (r Result) AssertString() string {
+func (r CmpResult) AssertString() string {
 	if r.Error == nil {
 		return "OK"
 	}
 	return "FAIL"
 }
 
-func (r Result) Cmp() (string, string) {
+func (r CmpResult) Cmp() (string, string) {
 	if r.Error != nil {
 		return colorRed, "!="
 	}
 	return colorReset, "=="
 }
 
-func (r Result) ComparisonString() string {
+func (r CmpResult) ComparisonString() string {
 	color, comparator := r.Cmp()
 	return fmt.Sprintf("%s(%v)%s %v %v %v",
 		colorGrey, r.a.Kind(), color, r.a, comparator, r.b)
 }
 
 // This should take a writer, instead of just writing to stdout
-func (r Result) Print(w io.Writer, debug bool, tabs string) error {
+func (r CmpResult) Print(w io.Writer, debug bool, tabs string) error {
+	defer fmt.Printf(colorReset)
 	if debug == false && r.Error == nil {
 		return nil
 	}
@@ -113,34 +115,50 @@ func (r Result) Print(w io.Writer, debug bool, tabs string) error {
 	return nil
 }
 
-type Option func(*Comparison)
+type Option func(*Assertion)
 
 func WithDebug() Option {
-	return func(c *Comparison) {
+	return func(c *Assertion) {
 		c.debug = true
 	}
 }
 
 func WithWriter(w io.Writer) Option {
-	return func(c *Comparison) {
+	return func(c *Assertion) {
 		c.writer = w
 	}
 }
 
-type Comparison struct {
-	debug  bool
-	writer io.Writer
-}
-
-func DefaultComparison() Comparison {
-	return Comparison{
-		debug:  false,
-		writer: os.Stdout,
+func WithIgnoredFields(fields ...string) Option {
+	return func(c *Assertion) {
+		for _, field := range fields {
+			c.ignore[field] = true
+		}
 	}
 }
 
-func NewComparison(opts ...Option) Comparison {
-	c := DefaultComparison()
+type Assertion struct {
+	testing testing.TB
+	writer  io.Writer
+	ignore  map[string]bool
+	debug   bool
+	evalMap equalityEvalMap
+}
+
+func DefaultAssertion(t testing.TB) Assertion {
+	assertion := Assertion{
+		testing: t,
+		debug:   false,
+		writer:  os.Stdout,
+		ignore:  make(map[string]bool),
+	}
+
+	assertion.evalMap = newEqualityEvalMap(&assertion)
+	return assertion
+}
+
+func NewAssertion(t testing.TB, opts ...Option) Assertion {
+	c := DefaultAssertion(t)
 
 	for _, opt := range opts {
 		opt(&c)
@@ -149,21 +167,21 @@ func NewComparison(opts ...Option) Comparison {
 	return c
 }
 
-func (c Comparison) Equal(a, b interface{}) error {
-	result := equal(reflect.ValueOf(a), reflect.ValueOf(b))
-	return result.Print(c.writer, c.debug, "")
+func (c Assertion) Equal(a, b interface{}) error {
+	return c.equal(reflect.ValueOf(a), reflect.ValueOf(b)).
+		Print(c.writer, c.debug, "")
 }
 
-func equal(a, b reflect.Value) Result {
+func (c *Assertion) equal(a, b reflect.Value) CmpResult {
 	if a.Kind() != b.Kind() {
-		return Result{
+		return CmpResult{
 			a: a, b: b,
 			Error: NewError(ErrDifferingTypes, DifferentTypesFmt, a.Kind(), a, b.Kind(), b),
 		}
 	}
-	fn, ok := evalTypeFn[a.Kind()]
+	fn, ok := c.evalMap[a.Kind()]
 	if !ok {
-		return Result{
+		return CmpResult{
 			a: a, b: b,
 			Error: NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a),
 		}
@@ -171,35 +189,35 @@ func equal(a, b reflect.Value) Result {
 	return fn(a, b)
 }
 
-func isEqual(statement bool, a, b reflect.Value) Result {
+func isEqual(statement bool, a, b reflect.Value) CmpResult {
 	if !statement {
-		return Result{
+		return CmpResult{
 			a: a, b: b,
 			Error: NewError(ErrNotEqual, "%v != %v", a, b),
 		}
 	}
-	return Result{a: a, b: b}
+	return CmpResult{a: a, b: b}
 }
 
-func isIntEqual(a, b reflect.Value) Result {
+func isIntEqual(a, b reflect.Value) CmpResult {
 	return isEqual(a.Int() == b.Int(), a, b)
 }
 
-func isFloatEqual(a, b reflect.Value) Result {
+func isFloatEqual(a, b reflect.Value) CmpResult {
 	return isEqual(a.Float() == b.Float(), a, b)
 }
 
-func isComplexEqual(a, b reflect.Value) Result {
+func isComplexEqual(a, b reflect.Value) CmpResult {
 	return isEqual(a.Complex() == b.Complex(), a, b)
 }
 
-func isSliceEqual(a, b reflect.Value) Result {
-	result := Result{
+func (c *Assertion) isSliceEqual(a, b reflect.Value) CmpResult {
+	result := CmpResult{
 		a: a, b: b,
 		Type: fmt.Sprintf("(%v)", a.Type().String()),
 	}
 	for i := 0; i < a.Len(); i++ {
-		r := equal(a.Index(i), b.Index(i))
+		r := c.equal(a.Index(i), b.Index(i))
 		r.Field = strconv.FormatInt(int64(i), 10)
 		result.Children = append(result.Children, r)
 		if r.Error != nil {
@@ -210,24 +228,24 @@ func isSliceEqual(a, b reflect.Value) Result {
 	return result
 }
 
-func isPointerEqual(a, b reflect.Value) Result {
+func isPointerEqual(a, b reflect.Value) CmpResult {
 	return isEqual(a.Pointer() == b.Pointer(), a, b)
 }
 
-func isInterfaceEqual(a, b reflect.Value) Result {
-	return equal(a.Elem(), b.Elem())
+func (c *Assertion) isInterfaceEqual(a, b reflect.Value) CmpResult {
+	return c.equal(a.Elem(), b.Elem())
 }
 
-func isPointerDeepEqual(a, b reflect.Value) Result {
-	return equal(refToVal(a), refToVal(b))
+func (c *Assertion) isPointerDeepEqual(a, b reflect.Value) CmpResult {
+	return c.equal(refToVal(a), refToVal(b))
 }
 
-func isMapEqual(a, b reflect.Value) Result {
-	result := Result{a: a, b: b,
+func (c *Assertion) isMapEqual(a, b reflect.Value) CmpResult {
+	result := CmpResult{a: a, b: b,
 		Type: fmt.Sprintf("(%v)", a.Type().String()),
 	}
 	for _, key := range a.MapKeys() {
-		r := equal(a.MapIndex(key), b.MapIndex(key))
+		r := c.equal(a.MapIndex(key), b.MapIndex(key))
 		r.Field = key.String()
 		result.Children = append(result.Children, r)
 		if r.Error != nil {
@@ -238,14 +256,19 @@ func isMapEqual(a, b reflect.Value) Result {
 	return result
 }
 
-func isStructEqual(a, b reflect.Value) Result {
-	result := Result{
+func (c *Assertion) isStructEqual(a, b reflect.Value) CmpResult {
+	result := CmpResult{
 		a: a, b: b,
 		Type: fmt.Sprintf("(%v::%v)", a.Type().PkgPath(), a.Type().Name()),
 	}
 
 	for i := 0; i < a.NumField(); i++ {
-		r := equal(a.Field(i), b.Field(i))
+		field := fmt.Sprintf("%s::%s", a.Type().Name(), a.Type().Field(i).Name)
+		if _, ok := c.ignore[field]; ok {
+			fmt.Printf("ignoring: %s\n", field)
+			continue
+		}
+		r := c.equal(a.Field(i), b.Field(i))
 		r.Field = a.Type().Field(i).Name
 		result.Children = append(result.Children, r)
 		if r.Error != nil {
@@ -256,11 +279,11 @@ func isStructEqual(a, b reflect.Value) Result {
 	return result
 }
 
-func isBoolEqual(a, b reflect.Value) Result {
+func isBoolEqual(a, b reflect.Value) CmpResult {
 	return isEqual(a.Bool() == b.Bool(), a, b)
 }
 
-func isStringEqual(a, b reflect.Value) Result {
+func isStringEqual(a, b reflect.Value) CmpResult {
 	return isEqual(a.String() == b.String(), a, b)
 }
 func refToVal(a reflect.Value) reflect.Value {
@@ -270,8 +293,8 @@ func refToVal(a reflect.Value) reflect.Value {
 	return a
 }
 
-func unsupported(a, b reflect.Value) Result {
-	return Result{
+func unsupported(a, _ reflect.Value) CmpResult {
+	return CmpResult{
 		Error: NewError(ErrUnsupportedType, "(kind: %v, type: %v, value: %v)", a.Kind(), a.Type(), a),
 	}
 }
