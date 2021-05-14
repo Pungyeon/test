@@ -175,7 +175,7 @@ func (c Assertion) Size(v interface{}, expected int) {
 	}
 }
 
-func (c Assertion) IsNil(err error) {
+func (c Assertion) NotNil(err error) {
 	if err != nil {
 		c.testing.Fatal(err)
 	}
