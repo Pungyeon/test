@@ -167,6 +167,20 @@ func NewAssertion(t testing.TB, opts ...Option) Assertion {
 	return c
 }
 
+func (c Assertion) Size(v interface{}, expected int) {
+	val := reflect.ValueOf(v)
+	if val.Len() != expected {
+		c.testing.Fatalf("unexpected size of %v: (expected) %v != %v (actual)",
+			val.Type().String(), val.Len(), expected)
+	}
+}
+
+func (c Assertion) IsNil(err error) {
+	if err != nil {
+		c.testing.Fatal(err)
+	}
+}
+
 func (c Assertion) Equal(a, b interface{}) error {
 	return c.equal(reflect.ValueOf(a), reflect.ValueOf(b)).
 		Print(c.writer, c.debug, "")
