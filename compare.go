@@ -181,9 +181,10 @@ func (c Assertion) IsNil(err error) {
 	}
 }
 
-func (c Assertion) Equal(a, b interface{}) error {
-	return c.equal(reflect.ValueOf(a), reflect.ValueOf(b)).
-		Print(c.writer, c.debug, "")
+func (c Assertion) Equal(a, b interface{}) {
+	if err := c.equal(reflect.ValueOf(a), reflect.ValueOf(b)).Print(c.writer, c.debug, ""); err != nil {
+		c.testing.Fatal(err)
+	}
 }
 
 func (c *Assertion) equal(a, b reflect.Value) CmpResult {
