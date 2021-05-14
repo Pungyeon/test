@@ -1,6 +1,7 @@
 package test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -117,6 +118,12 @@ func (r CmpResult) Print(w io.Writer, debug bool, tabs string) error {
 
 type Option func(*Assertion)
 
+func WithExpectedErrors(errs ...error) Option {
+	return func(c *Assertion) {
+		c.expectedErrors = errs
+	}
+}
+
 func WithDebug() Option {
 	return func(c *Assertion) {
 		c.debug = true
@@ -138,11 +145,12 @@ func WithIgnoredFields(fields ...string) Option {
 }
 
 type Assertion struct {
-	testing testing.TB
-	writer  io.Writer
-	ignore  map[string]bool
-	debug   bool
-	evalMap equalityEvalMap
+	testing        testing.TB
+	writer         io.Writer
+	ignore         map[string]bool
+	debug          bool
+	expectedErrors []error
+	evalMap        equalityEvalMap
 }
 
 func DefaultAssertion(t testing.TB) Assertion {
@@ -182,9 +190,21 @@ func (c Assertion) IsNil(err error) {
 }
 
 func (c Assertion) Equal(a, b interface{}) {
-	if err := c.equal(reflect.ValueOf(a), reflect.ValueOf(b)).Print(c.writer, c.debug, ""); err != nil {
-		c.testing.Fatal(err)
+	c.evaluateError(
+		c.equal(reflect.ValueOf(a), reflect.ValueOf(b)).Print(c.writer, c.debug, ""),
+	)
+}
+
+func (c Assertion) evaluateError(err error) {
+	if err == nil && c.expectedErrors == nil {
+		return
 	}
+	for _, expected := range c.expectedErrors {
+		if errors.Is(err, expected) {
+			return
+		}
+	}
+	c.testing.Fatal(err)
 }
 
 func (c *Assertion) equal(a, b reflect.Value) CmpResult {

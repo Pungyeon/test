@@ -2,7 +2,6 @@ package test
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math/cmplx"
 	"sync"
@@ -35,6 +34,16 @@ type InnerStruct struct {
 	Values []int
 }
 
+func TestSize(t *testing.T) {
+	assert := NewAssertion(t)
+	assert.Size("ding", 4)
+	assert.Size([]int{1, 2, 3}, 3)
+	assert.Size(map[string]int{
+		"ding": 1,
+		"dong": 2,
+	}, 2)
+}
+
 func TestStructCompare(t *testing.T) {
 	var (
 		expectedOut = "\x1b[33m(github.com/pungyeon/test::BigStruct)\x1b[90m[FAIL]\n\x1b[36mInner: \x1b[33m(github.com/pungyeon/test::InnerStruct)\x1b[90m[FAIL]\n\t\x1b[36mValues: \x1b[33m([]int)\x1b[90m[FAIL]\n\t\t\x1b[36m7: \x1b[90m(int)\x1b[31m 7 != 8\n"
@@ -59,7 +68,10 @@ func TestStructCompare(t *testing.T) {
 	)
 
 	out := bytes.Buffer{}
-	if err := NewAssertion(t, WithWriter(&out)).Equal(a, BigStruct{
+	NewAssertion(t,
+		WithWriter(&out),
+		WithExpectedErrors(ErrNotEqual),
+	).Equal(a, BigStruct{
 		Name: "Big Struct",
 		Value: TestInterfaceProp{
 			v: &TestNest{
@@ -76,9 +88,7 @@ func TestStructCompare(t *testing.T) {
 				age: 39,
 			},
 		},
-	}); !errors.Is(err, ErrNotEqual) {
-		t.Fatal(err)
-	}
+	})
 
 	if out.String() != expectedOut {
 		t.Fatalf("got: %#v\nexpected: %#v", out.String(), expectedOut)
@@ -108,7 +118,7 @@ func TestStructCompareDebug(t *testing.T) {
 		}
 	)
 	var out bytes.Buffer
-	if err := NewAssertion(t,
+	NewAssertion(t,
 		WithDebug(),
 		WithWriter(&out),
 	).Equal(a, BigStruct{
@@ -128,9 +138,8 @@ func TestStructCompareDebug(t *testing.T) {
 				age: 39,
 			},
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
+
 	if out.String() != expectedOut {
 		t.Fatalf("got: %#v\nexpected: %#v", out.String(), expectedOut)
 	}
@@ -232,9 +241,7 @@ func TestCompare(t *testing.T) {
 	}
 
 	for _, tf := range tt {
-		if err := cmp.Equal(tf.a, tf.b); !errors.Is(err, tf.expected) {
-			t.Fatalf("test (%s) failed: %v", tf.name, err)
-		}
+		NewAssertion(t, WithExpectedErrors(tf.expected)).Equal(tf.a, tf.b)
 	}
 }
 
@@ -267,10 +274,7 @@ func TestIgnoreField(t *testing.T) {
 		}
 	)
 
-	if err := NewAssertion(t, WithIgnoredFields("InnerStruct::Name")).
-		Equal(a, expected); err != nil {
-		t.Fatal(err)
-	}
+	NewAssertion(t, WithIgnoredFields("InnerStruct::Name")).Equal(a, expected)
 }
 
 type Credentials struct {
